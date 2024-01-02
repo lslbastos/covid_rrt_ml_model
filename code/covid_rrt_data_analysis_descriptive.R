@@ -21,14 +21,12 @@ trainIndex <- caret::createDataPartition(df_covid_mv$rrt_outcome,
 
 df_covid_mv_set <- 
     df_covid_mv %>% 
-    mutate(set = case_when(
-        row_number() %in% trainIndex ~ "train",
-        !(row_number() %in% trainIndex) ~ "test"
-    )
-    
-               
-               
-               )
+    mutate(
+        set = case_when(
+            row_number() %in% trainIndex ~ "train",
+            !(row_number() %in% trainIndex) ~ "test"
+            )
+        )
     
 # Data Analysis -----------------------------------------------------------
 ## Descriptive Table -- All MV patients
@@ -59,10 +57,10 @@ labels_desc <- list(
     BUN ~ "BUN, median (IQR)",
     LowestPlateletsCount1h ~ "Platelets count, median (IQR)",
     HighestCreatinine1h ~ "Creatinine, median (IQR)", 
-    IsNonInvasiveVentilation ~ "Noninvasive Ventilation (24h), N (%)",
-    IsMechanicalVentilation ~ "Mechanical ventilation (24h), N (%)",
-    IsVasopressors ~ "Vasopressors (24h), N (%)",
-    IsRenalReplacementTherapy ~ "Renal replacement therapy (24h), N (%)",
+    IsNonInvasiveVentilation1h ~ "Noninvasive Ventilation (Admission), N (%)",
+    IsMechanicalVentilation1h ~ "Mechanical ventilation (Admission), N (%)",
+    IsVasopressors1h ~ "Vasopressors (Admission), N (%)",
+    # IsRenalReplacementTherapy1h ~ "Renal replacement therapy (Admission), N (%)",
     # ResourceIsRenalReplacementTherapy ~ "Renal Replacement Therapy, N (%)",
     ResourceIsNonInvasiveVentilation ~ "Noninvasive ventilation support, N (%)",
     ResourceIsHFNC ~ "High-flow nasal cannula, N (%)",
@@ -110,10 +108,10 @@ tb_descriptive <-
         Urea, 
         BUN,
         HighestCreatinine1h, 
-        IsRenalReplacementTherapy,
-        IsNonInvasiveVentilation,
-        IsMechanicalVentilation,
-        IsVasopressors,
+        # IsRenalReplacementTherapy1h,
+        IsNonInvasiveVentilation1h,
+        IsMechanicalVentilation1h,
+        IsVasopressors1h,
         ResourceIsRenalReplacementTherapy,
         ResourceIsNonInvasiveVentilation,
         ResourceIsHFNC,
@@ -172,10 +170,10 @@ labels_desc_sets <- list(
     BUN ~ "BUN, median (IQR)",
     LowestPlateletsCount1h ~ "Platelets count, median (IQR)",
     HighestCreatinine1h ~ "Creatinine, median (IQR)", 
-    IsNonInvasiveVentilation ~ "Noninvasive Ventilation (24h), N (%)",
-    IsMechanicalVentilation ~ "Mechanical ventilation (24h), N (%)",
-    IsVasopressors ~ "Vasopressors (24h), N (%)",
-    IsRenalReplacementTherapy ~ "Renal replacement therapy (24h), N (%)",
+    IsNonInvasiveVentilation1h ~ "Noninvasive Ventilation (Admission), N (%)",
+    IsMechanicalVentilation1h ~ "Mechanical ventilation (Admission), N (%)",
+    IsVasopressors1h ~ "Vasopressors (Admission), N (%)",
+    # IsRenalReplacementTherapy1h ~ "Renal replacement therapy (Admission), N (%)",
     ResourceIsRenalReplacementTherapy ~ "Renal Replacement therapy, N (%)",
     ResourceIsNonInvasiveVentilation ~ "Noninvasive ventilation support, N (%)",
     ResourceIsHFNC ~ "High-flow nasal cannula, N (%)",
@@ -230,10 +228,10 @@ tb_descriptive_sets <-
         Urea, 
         BUN,
         HighestCreatinine1h, 
-        IsRenalReplacementTherapy,
-        IsNonInvasiveVentilation,
-        IsMechanicalVentilation,
-        IsVasopressors,
+        # IsRenalReplacementTherapy1h,
+        IsNonInvasiveVentilation1h,
+        IsMechanicalVentilation1h,
+        IsVasopressors1h,
         ResourceIsRenalReplacementTherapy,
         # RenalReplacementTherapyDuration,
         ResourceIsNonInvasiveVentilation,
@@ -423,7 +421,7 @@ plot_comb <-
          plot_admissions_day_RRT + 
          plot_death_day +
          plot_death_day_RRT) + 
-    plot_annotation(tag_level = "A") +
+    plot_annotation(tag_levels = "A") +
     plot_layout(guides = "collect") &
     theme(
         legend.position = "top", legend.justification = "right"

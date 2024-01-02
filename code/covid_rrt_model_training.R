@@ -2,6 +2,7 @@
 # Library -----------------------------------------------------------------
 library(tidyverse)
 library(caret)
+library(mice)
 
 # User functions ----------------------------------------------------------
 ## Custom fun
@@ -17,8 +18,6 @@ paste_boot_ci <- function(x) {
 # Data Input --------------------------------------------------------------
 df_covid <- read_csv("input/df_icu_adm_COVID_RespSupport_first24h_selected_2020_2021.csv")
 
-library(mice)
-
 df_covid_model <- 
     df_covid %>% 
     mutate(
@@ -29,30 +28,37 @@ df_covid_model <-
            Age, 
            Gender, 
            MFI_level, 
-           # SofaScore, 
-           Urea, 
+           Urea,
            LowestGlasgowComaScale1h, 
            LowestPlateletsCount1h, 
-           HighestBilirubin1h,
-           # BUN, 
+           # HighestBilirubin1h,
            HighestCreatinine1h,
            diabetes, 
            chronic_kidney, 
            hypertension, 
-           IsNonInvasiveVentilation, 
-           IsMechanicalVentilation, 
-           IsVasopressors
+           IsNonInvasiveVentilation1h, 
+           IsMechanicalVentilation1h, 
+           IsVasopressors1h
            ) %>% 
     mutate_at(vars(starts_with("Is")), 
-              function(x) { if_else(x == 1, "yes", "no")} ) %>% 
+              function(x) { case_when(x == 1 ~ "yes", TRUE ~ "no")} ) %>% 
     mutate_at(c("diabetes", "chronic_kidney", "hypertension"),
-              function(x) { if_else(x == 1, "yes", "no")} 
+              function(x) { case_when(x == 1 ~ "yes", TRUE ~ "no")} 
     ) %>% 
-    mutate_if(is.character, as.factor) 
-    # %>% 
-    # mutate(
-    #     MFI_level = factor(MFI_level, levels = c("non_frail", "pre_frail","frail"))
-    # )
+    # mutate_at(vars(starts_with("Is")), 
+    #           function(x) { if_else(x == 1, "yes", "no")} ) %>% 
+    # mutate_at(c("diabetes", "chronic_kidney", "hypertension"),
+    #           function(x) { if_else(x == 1, "yes", "no")} 
+    # ) %>% 
+    mutate_if(is.character, as.factor) %>% 
+    rename(
+        IsNonInvasiveVentilation = IsNonInvasiveVentilation1h, 
+        IsMechanicalVentilation = IsMechanicalVentilation1h,
+        IsVasopressors = IsVasopressors1h 
+    ) %>% 
+    mutate(
+        MFI_level = factor(MFI_level, levels = c("non_frail", "pre_frail","frail"))
+    )
     # %>% 
     # drop_na()
 
@@ -70,14 +76,14 @@ df_covid_test <- df_covid_model[-trainIndex, ]
 
 
 ## Imputing train set
-df_covid_model_train_imp <- 
+df_covid_train_imp <- 
     mice(df_covid_train, m = 30) %>% 
     complete(., "long") %>% 
     as_tibble() %>%
     group_by(.id) %>% 
     mutate(
         HighestCreatinine1h      = mean(HighestCreatinine1h),
-        HighestBilirubin1h       = mean(HighestBilirubin1h),
+        # HighestBilirubin1h       = mean(HighestBilirubin1h),
         LowestPlateletsCount1h   = mean(LowestPlateletsCount1h),
         LowestGlasgowComaScale1h = mean(LowestGlasgowComaScale1h)
     ) %>% 
@@ -85,7 +91,7 @@ df_covid_model_train_imp <-
     filter(.imp == 1) %>% 
     select(-c(.imp, .id))
 
-write_csv(df_covid_model_train_imp, "output/df_covid_model_train_imp.csv")
+write_csv(df_covid_train_imp, "output/df_covid_train_imp.csv")
 
 
 ## Imputing test set
@@ -96,7 +102,7 @@ df_covid_test_imp <-
     group_by(.id) %>% 
     mutate(
         HighestCreatinine1h      = mean(HighestCreatinine1h),
-        HighestBilirubin1h       = mean(HighestBilirubin1h),
+        # HighestBilirubin1h       = mean(HighestBilirubin1h),
         LowestPlateletsCount1h   = mean(LowestPlateletsCount1h),
         LowestGlasgowComaScale1h = mean(LowestGlasgowComaScale1h)
     ) %>% 
@@ -106,21 +112,21 @@ df_covid_test_imp <-
 
 
 ## Checking correlated variables
-cor(df_covid_model_train_imp %>% 
+cor(df_covid_train_imp %>% 
         select(Age, Urea, LowestGlasgowComaScale1h,
-               LowestPlateletsCount1h, HighestBilirubin1h,
+               LowestPlateletsCount1h,
                HighestCreatinine1h), method = "spearman")
 
 
 ## Creting pre-processing object
-data_pre_process_train <- preProcess(df_covid_model_train_imp %>% select(-rrt_outcome),
+data_pre_process_train <- preProcess(df_covid_train_imp %>% select(-rrt_outcome),
                                      method = c("range", "nzv", "corr")) 
 
 
 write_rds(data_pre_process_train, "input/data_pre_process_train.rds")
 
 ## Pre-processed data frames
-df_covid_train_process <- predict(data_pre_process_train, df_covid_model_train_imp)
+df_covid_train_process <- predict(data_pre_process_train, df_covid_train_imp)
 df_covid_test_process  <- predict(data_pre_process_train, df_covid_test_imp)
 
 
@@ -164,13 +170,14 @@ BigSummary <- function (data, lev = NULL, model = NULL) {
 # rfe_stats <- function(...) {c(twoClassSummary(...), BigSummary(...))}
 SummaryFuns <- function(...) {c(twoClassSummary(...), BigSummary(...), mnLogLoss(...))}
 treebagFuncs$summary <- SummaryFuns
+# caretFuncs$summary <- SummaryFuns
 
 
 set.seed(2^31-1)
 var_selection <- rfe(y = df_covid_train_process$rrt_outcome,
                      x = df_covid_train_process[, -1],
-                     metric = "logLoss", maximize = FALSE,
-                     sizes = 1:14,
+                     metric = "Brier", maximize = FALSE,
+                     sizes = 1:(ncol(df_covid_train_process) - 1),
                      rfeControl = rfeControl(functions = treebagFuncs,
                                              method = "cv", number = 5,
                                              verbose = TRUE)
@@ -222,24 +229,27 @@ train_control_LR <-  trainControl(method = "cv",
 
 library(rms)
 
+
+
 set.seed(2^31 - 1)
 model_train_LR <- train(rrt_outcome ~ 
-                            rms::rcs(Age) + 
-                            # Gender +
-                            MFI_level + 
-                            rms::rcs(Urea) + 
-                            rms::rcs(HighestCreatinine1h) + 
-                            LowestGlasgowComaScale1h +
-                            rms::rcs(LowestPlateletsCount1h) +
-                            rms::rcs(HighestBilirubin1h) +
-                            # diabetes +
-                            # chronic_kidney + 
-                            # hypertension + 
-                            # IsNonInvasiveVentilation + 
+                            splines::ns(Age) + 
+                            chronic_kidney +
+                            diabetes + 
+                            Gender +
+                            # rms::rcs(HighestBilirubin1h) +
+                            splines::ns(HighestCreatinine1h) +
+                            hypertension +
                             IsMechanicalVentilation + 
-                            IsVasopressors,
+                            IsNonInvasiveVentilation +
+                            IsVasopressors +
+                            splines::ns(LowestGlasgowComaScale1h) +
+                            splines::ns(LowestPlateletsCount1h) +
+                            MFI_level +
+                            splines::ns(Urea),
                         data = df_covid_train_process,
                         method = train_params_LR$model_method,
+                        family = "binomial",
                         metric = "Brier", 
                         maximize = FALSE,
                         trControl = train_control_LR,
@@ -267,18 +277,24 @@ train_control_LR_reg <-  trainControl(method = "cv",
                                   allowParallel = TRUE)
 
 set.seed(2^31 - 1)
-model_train_LR_reg <- train(rrt_outcome ~
-                                rms::rcs(Age) + 
-                                MFI_level + 
-                                rms::rcs(Urea) + 
-                                rms::rcs(HighestCreatinine1h) + 
-                                LowestGlasgowComaScale1h +
-                                rms::rcs(LowestPlateletsCount1h) +
-                                rms::rcs(HighestBilirubin1h) +
+model_train_LR_reg <- train(rrt_outcome ~ 
+                                splines::ns(Age) + 
+                                chronic_kidney +
+                                diabetes + 
+                                Gender +
+                                # rms::rcs(HighestBilirubin1h) +
+                                splines::ns(HighestCreatinine1h) +
+                                hypertension +
                                 IsMechanicalVentilation + 
-                                IsVasopressors,
+                                IsNonInvasiveVentilation +
+                                IsVasopressors +
+                                splines::ns(LowestGlasgowComaScale1h) +
+                                splines::ns(LowestPlateletsCount1h) +
+                                MFI_level +
+                                splines::ns(Urea),
                             data = df_covid_train_process,
                         method = train_params_LR_reg$model_method,
+                        family = "binomial",
                         metric = "Brier",
                         maximize = FALSE,
                         trControl = train_control_LR_reg,

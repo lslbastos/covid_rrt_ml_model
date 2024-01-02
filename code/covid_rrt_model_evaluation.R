@@ -23,7 +23,7 @@ model_train_LR_reg <- read_rds("input/trained_models/model_train_LR_reg.rds")
 model_train_NB  <- read_rds("input/trained_models/model_train_NB.rds")
 model_train_GBM <- read_rds("input/trained_models/model_train_GBM.rds")
 model_train_XGB <- read_rds("input/trained_models/model_train_XGB.rds")
-model_train_RF <- read_rds("input/trained_models/model_train_RF.rds")
+model_train_RF  <- read_rds("input/trained_models/model_train_RF.rds")
 model_train_SVM <- read_rds("input/trained_models/model_train_SVM.rds")
 model_train_NN  <- read_rds("input/trained_models/model_train_NN.rds")
 
@@ -97,7 +97,7 @@ writexl::write_xlsx(df_cv_resamples_metrics, "output/df_cv_resamples_metrics.xls
 
 
 # Metrics on testing samples ----------------------------------------------
-
+library(rms)
 ## Obtaining predictions
 df_model_obs_pred_test <-
     df_covid_test_process %>% 
@@ -157,7 +157,7 @@ df_model_obs_pred_test_metrics_boot <-
     summarise(
         auc_ci   = paste_boot_ci(auc),
         brier_ci = paste_boot_ci(brier),
-        au_pr_ci = paste_boot_ci(brier),
+        au_pr_ci = paste_boot_ci(au_pr),
     ) %>% 
     left_join(
         df_model_obs_pred_test_metrics
@@ -165,12 +165,94 @@ df_model_obs_pred_test_metrics_boot <-
     mutate(
         auc_ci = paste(round(auc, 2), auc_ci),
         brier_ci = paste(round(brier, 2), brier_ci),
-        au_pr_ci = paste(round(au_pr, 2), brier_ci)
+        au_pr_ci = paste(round(au_pr, 2), au_pr_ci)
     ) %>% 
     select(model, auc_ci, brier_ci, au_pr_ci)
 
 writexl::write_xlsx(df_model_obs_pred_test_metrics_boot, "output/df_model_obs_pred_test_metrics_boot.xlsx")
 
+
+df_model_obs_pred_test_cutoff <-
+    df_covid_test_process %>% 
+    select(rrt_outcome) %>% 
+    mutate(
+        # rrt_outcome = if_else(rrt_outcome == "positive", 1, 0),
+        LR_pred = predict(model_train_LR, 
+                          # type = "response", 
+                          newdata = df_covid_test_process[, -1]),
+        LR_reg_pred = predict(model_train_LR_reg, 
+                              # type = "prob", 
+                              newdata = df_covid_test_process[, -1]),
+        RF_pred = predict(model_train_RF,
+                          # type = "prob",
+                          newdata = df_covid_test_process[, -1]),
+        GBM_pred = predict(model_train_GBM, 
+                           # type = "prob", 
+                           newdata = df_covid_test_process[, -1]),
+        XGB_pred = predict(model_train_XGB, 
+                           # type = "prob", 
+                           newdata = df_covid_test_process[, -1]),
+        SVM_pred = predict(model_train_SVM, 
+                           # type = "prob", 
+                           newdata = df_covid_test_process[, -1]),
+        NB_pred = predict(model_train_NB, 
+                          # type = "prob", 
+                          newdata = df_covid_test_process[, -1]),
+        NN_pred = predict(model_train_NN, 
+                          # type = "prob", 
+                          newdata = df_covid_test_process[, -1])
+    ) 
+    # %>% 
+    # mutate_at(vars(ends_with("_pred")), function(x){case_when(x == "positive" ~ 1, TRUE ~ 0)})
+
+
+
+# caret::confusionMatrix()    
+
+df_model_obs_pred_test_metrics_boot_cutoff <- 
+    df_model_obs_pred_test_cutoff %>% 
+    infer::rep_sample_n(., size = nrow(.), replace = TRUE, reps = 2000) %>% 
+    pivot_longer(-c(rrt_outcome, replicate), names_to = "model", values_to = "pred_prob") %>% 
+    group_by(model, replicate) %>% 
+    summarise(
+        sensitivity = caret::confusionMatrix(table(pred_prob, rrt_outcome), positive = "positive")$byClass["Sensitivity"],
+        specificity = caret::confusionMatrix(table(pred_prob, rrt_outcome), positive = "positive")$byClass["Specificity"],
+        PPV = caret::confusionMatrix(table(pred_prob, rrt_outcome), positive = "positive")$byClass["Pos Pred Value"],
+        NPV = caret::confusionMatrix(table(pred_prob, rrt_outcome), positive = "positive")$byClass["Neg Pred Value"],
+        F1 = caret::confusionMatrix(table(pred_prob, rrt_outcome), positive = "positive")$byClass["F1"]
+    ) %>% 
+    group_by(model) %>% 
+    summarise(
+        sensitivity_ci   = paste_boot_ci(sensitivity),
+        specificity_ci = paste_boot_ci(specificity),
+        PPV_ci = paste_boot_ci(PPV),
+        NPV_ci = paste_boot_ci(NPV),
+        F1_ci = paste_boot_ci(NPV)
+    ) %>% 
+    left_join(
+        df_model_obs_pred_test_cutoff %>% 
+            pivot_longer(-c(rrt_outcome), names_to = "model", values_to = "pred_prob") %>% 
+            group_by(model) %>% 
+            summarise(
+                sensitivity = caret::confusionMatrix(table(pred_prob, rrt_outcome), positive = "positive")$byClass["Sensitivity"],
+                specificity = caret::confusionMatrix(table(pred_prob, rrt_outcome), positive = "positive")$byClass["Specificity"],
+                PPV = caret::confusionMatrix(table(pred_prob, rrt_outcome), positive = "positive")$byClass["Pos Pred Value"],
+                NPV = caret::confusionMatrix(table(pred_prob, rrt_outcome), positive = "positive")$byClass["Neg Pred Value"],
+                F1 = caret::confusionMatrix(table(pred_prob, rrt_outcome), positive = "positive")$byClass["F1"]
+            )
+        ) %>% 
+    mutate(
+        sensitivity_ci = paste(round(sensitivity, 2), sensitivity_ci),
+        specificity_ci = paste(round(specificity, 2), specificity_ci),
+        PPV_ci = paste(round(PPV, 2), PPV_ci),
+        NPV_ci = paste(round(NPV, 2), NPV_ci),
+        F1_ci = paste(round(F1, 2), F1_ci)
+    ) %>%
+    select(model, sensitivity_ci, specificity_ci, PPV_ci, NPV_ci, F1_ci)
+
+
+writexl::write_xlsx(df_model_obs_pred_test_metrics_boot_cutoff, 
+                    "output/df_model_obs_pred_test_metrics_boot_cutoff.xlsx")
 
 
 
@@ -513,7 +595,8 @@ library(fastshap)
 pfun <- function(object, newdata) {
     
     # Subtracts one to adjust for probabilities in predict()
-    1- predict(object, newdata = newdata)
+    # 1- predict(object, newdata = newdata, type = "prob")
+    predict(object, data = as.data.frame(newdata))$predictions[, 2]
 }
 
 
@@ -524,23 +607,34 @@ dummy_creation <- dummyVars(~ . ,
 df_covid_train_process_dummy <- predict(dummy_creation, df_covid_train_process[, -1])
 
 # 
-pfun(model_train_XGB$finalModel,
-     newdata = xgboost::xgb.DMatrix(df_covid_train_process_dummy))
+# predict(object = model_train_RF$finalModel, 
+#         data = as.data.frame(df_covid_train_process_dummy))$predictions[, 2]
+
+pfun(object = model_train_RF$finalModel,
+     newdata = df_covid_train_process_dummy)
+# pfun(model_train_XGB$finalModel,
+#      newdata = xgboost::xgb.DMatrix(df_covid_train_process_dummy))
 
 
 ## Obtaining SHAP values
 set.seed(2^31 - 1)
-shap <- explain(object = model_train_XGB$finalModel, 
+shap <- explain(object = model_train_RF$finalModel,
                 X = df_covid_train_process_dummy,
-                pred_wrapper = pfun, nsim = 100)
+                pred_wrapper = pfun, nsim = 10, adjust = TRUE)
 
+# 
+# shap <- explain(object = model_train_XGB$finalModel,
+#                 X = df_covid_train_process_dummy,
+#                 pred_wrapper = pfun, nsim = 100)
+# 
 
 
 ## SHAP Variable importance
 shap_imp <- data.frame(
     Variable = names(shap),
     Importance = apply(shap, MARGIN = 2, FUN = function(x) sum(abs(x)))
-)
+) %>% 
+  arrange(-Importance)
 
 plot_shap_var_importance <- 
     ggplot(shap_imp, aes(reorder(Variable, Importance), Importance)) +
@@ -580,10 +674,16 @@ plot_shap_var_label <-
         HighestBilirubin1h      = "Bilirubin",
         Age                     = "Age", 
         LowestGlasgowComaScale1h    = "Glasgow Coma Scale", 
-        IsVasopressorsyes           = "Vasopressors (24h)", 
-        IsMechanicalVentilationyes  = "Mechanical Ventilation (24h)", 
+        IsVasopressorsyes           = "Vasopressors", 
+        IsMechanicalVentilationyes  = "IMV", 
+        IsNonInvasiveVentilationyes  = "NIV", 
+        hypertensionyes  = "Hypertension", 
         MFI_levelpre_frail = "MFI: Pre-frail", 
-        MFI_levelfrail     = "MFI: Frail"
+        MFI_levelnon_frail = "MFI: Non-frail", 
+        MFI_levelfrail     = "MFI: Frail",
+        chronic_kidneyyes = "Chronic Kidney Disease",
+        GenderM = "Gender: Male",
+        diabetesyes = "Diabetes"
     )
            
 
@@ -593,9 +693,49 @@ plot_shap_var_value <-
     scale_x_discrete(labels = plot_shap_var_label) +
     # scale_fill_discrete() +
     labs(
-        y = "Shapley values\n(Best model: XGBoosting)"
+        y = "Shapley values"
     ) +
     theme_bw()
+
+
+df_shap_ind <- 
+  as_tibble(shap) %>% 
+  mutate(shap_id = 1:n()) %>% 
+  pivot_longer(-shap_id, names_to = "var", values_to = "shap") %>% 
+  ungroup() %>% 
+  left_join(
+    
+    as_tibble(df_covid_train_process_dummy) %>%
+      mutate(shap_id = 1:n()) %>% 
+      pivot_longer(-shap_id, names_to = "var", values_to = "val")
+    
+  ) %>% 
+  left_join(
+    shap_imp,
+    by = c("var" = "Variable")
+  ) %>% 
+  arrange(Importance) %>% 
+  mutate(
+    var = factor(var, levels = rev(shap_imp$Variable))
+  )
+
+
+
+plot_shap_var_value_summary <-
+  df_shap_ind %>% 
+    ggplot() +
+    ggbeeswarm::geom_quasirandom(aes(x = shap, y = var, color = val), size = 0.7) +
+    # geom_point(aes(x = shap, y = reorder(var, Importance), color = val)) +
+    scale_color_gradient(name = "Feature Value", low = "blue", high = "red", 
+                         breaks = c(0, 1), labels = c("Low", "High")) + 
+    scale_y_discrete(labels = plot_shap_var_label) +
+    # scale_fill_discrete() +
+    labs(
+        x = "Shapley values",
+        y = ""
+    ) +
+    theme_bw() +
+    theme(legend.position = "bottom")
 
 # autoplot(shap, type = "dependence", feature = "MFI_levelpre_frail", X = df_covid_train_process_dummy) +
 #     # scale_x_discrete(labels = plot_shap_var_label) +
@@ -611,10 +751,15 @@ library(patchwork)
 plot_comb_auc_shap <- 
     (plot_rocs / plot_shap_var_value) + plot_annotation(tag_levels = "A")
     
-
-
-
 ggsave("output/plot_comb_auc_shap.pdf", plot_comb_auc_shap, units = "in", dpi = 800,
+       width = 8, height = 10)
+
+
+
+plot_comb_auc_shap <- 
+    (plot_rocs / plot_shap_var_value_summary) + plot_annotation(tag_levels = "A")
+    
+ggsave("output/plot_comb_auc_shap_summary.pdf", plot_comb_auc_shap, units = "in", dpi = 400,
        width = 8, height = 10)
 
 

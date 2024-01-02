@@ -17,7 +17,7 @@ paste_boot_ci <- function(x) {
 # External Validation -----------------------------------------------------
 
 ## Input data
-df_covid_external <- read_csv("df_icu_adm_COVID_RespSupport_first24h_selected_2022.csv")
+df_covid_external <- read_csv("input/df_icu_adm_COVID_RespSupport_first24h_selected_2022.csv")
 
 ## Selecting predictors
 df_covid_model_external <- 
@@ -33,22 +33,31 @@ df_covid_model_external <-
            Urea, 
            LowestGlasgowComaScale1h, 
            LowestPlateletsCount1h, 
-           HighestBilirubin1h,
+           # HighestBilirubin1h,
            # BUN, 
            HighestCreatinine1h,
            diabetes, 
            chronic_kidney, 
            hypertension, 
-           IsNonInvasiveVentilation, 
-           IsMechanicalVentilation, 
+           IsNonInvasiveVentilation1h, 
+           IsMechanicalVentilation1h, 
            IsVasopressors
     ) %>% 
     mutate_at(vars(starts_with("Is")), 
-              function(x) { if_else(x == 1, "yes", "no")} ) %>% 
+              function(x) { case_when(x == 1 ~ "yes", TRUE ~ "no")} ) %>% 
     mutate_at(c("diabetes", "chronic_kidney", "hypertension"),
-              function(x) { if_else(x == 1, "yes", "no")} 
+              function(x) { case_when(x == 1 ~ "yes", TRUE ~ "no")} 
     ) %>% 
+    # mutate_at(vars(starts_with("Is")), 
+    #           function(x) { if_else(x == 1, "yes", "no")} ) %>% 
+    # mutate_at(c("diabetes", "chronic_kidney", "hypertension"),
+    #           function(x) { if_else(x == 1, "yes", "no")} 
+    # ) %>% 
     mutate_if(is.character, as.factor) %>% 
+    rename(
+        IsNonInvasiveVentilation = IsNonInvasiveVentilation1h, 
+        IsMechanicalVentilation = IsMechanicalVentilation1h, 
+    ) %>% 
     mutate(
         MFI_level = factor(MFI_level, levels = c("non_frail", "pre_frail","frail"))
     )
@@ -64,7 +73,7 @@ df_covid_model_imp_external <- mice(df_covid_model_external, m = 30) %>%
     group_by(.id) %>% 
     mutate(
         HighestCreatinine1h      = mean(HighestCreatinine1h),
-        HighestBilirubin1h       = mean(HighestBilirubin1h),
+        # HighestBilirubin1h       = mean(HighestBilirubin1h),
         LowestPlateletsCount1h   = mean(LowestPlateletsCount1h),
         LowestGlasgowComaScale1h = mean(LowestGlasgowComaScale1h)
     ) %>% 
@@ -77,7 +86,7 @@ write_csv(df_covid_model_imp_external, "output/df_covid_model_imp_external.csv")
 
 
 ## Input train parameteres for normalisation
-data_pre_process_train <- read_rds("data_pre_process_train.rds")
+data_pre_process_train <- read_rds("input/data_pre_process_train.rds")
 
 ## Input select predictors
 selected_vars <- read_csv("output/selected_vars_rfe.csv") %>% pull(variables)
@@ -92,7 +101,7 @@ write_rds(df_covid_ext_process, "input/df_covid_ext_process.rds")
 
 ### Input Model
 
-final_model <- read_rds("input/trained_models/model_train_XGB.rds")
+final_model <- read_rds("input/trained_models/model_train_RF.rds")
 
 
 
@@ -172,7 +181,7 @@ writexl::write_xlsx(df_model_obs_pred_ext_metrics_boot, "output/df_model_obs_pre
 
 plot_rocs_label <- 
     c(
-        model = paste0("XGBoosting (external validation)\n", df_model_obs_pred_ext_metrics_boot[which(df_model_obs_pred_ext_metrics_boot$model == "ext_pred"), "auc_ci"])
+        model = paste0("Random Forest (temporal validation)\n", df_model_obs_pred_ext_metrics_boot[which(df_model_obs_pred_ext_metrics_boot$model == "ext_pred"), "auc_ci"])
     )
 
 plot_rocs <- pROC::ggroc(
@@ -188,7 +197,7 @@ plot_rocs <- pROC::ggroc(
     theme(legend.position = "bottom")
 
 
-ggsave("output/plot_rocs_auc_model_external.png", plot_rocs, units = "in", dpi = 800,
+ggsave("output/plot_rocs_auc_model_temporal.png", plot_rocs, units = "in", dpi = 800,
        width = 5, height = 4.5)
 
 
@@ -206,14 +215,14 @@ plot_calibelt_ext_val <-
         devel = "external"
     )
 
-png("output/Models_Calibelts_ExternalVal.png", 
+png("output/Models_Calibelts_TemporalVal.png", 
     width = 5, height = 4.5, units = 'in', res = 800, pointsize = 11)
 
 plot(plot_calibelt_ext_val,
-     main = paste0("XGBoosting (external validation)\n", df_model_obs_pred_ext_metrics_boot[which(df_model_obs_pred_ext_metrics_boot$model == "ext_pred"), "brier_ci"]),
+     main = paste0("Random Forest (temporal validation)\n", df_model_obs_pred_ext_metrics_boot[which(df_model_obs_pred_ext_metrics_boot$model == "ext_pred"), "brier_ci"]),
      xlab = "Expected",
      ylab = "Observed", 
-     pvalueString = FALSE, 
+     # pvalueString = FALSE, 
      nString = FALSE, 
      polynomialString = FALSE)
 
@@ -255,10 +264,10 @@ df_covid_external_risks <-
         Urea, 
         BUN,
         HighestCreatinine1h, 
-        IsRenalReplacementTherapy,
-        IsNonInvasiveVentilation,
-        IsMechanicalVentilation,
-        IsVasopressors,
+        # IsRenalReplacementTherapy1h,
+        IsNonInvasiveVentilation1h,
+        IsMechanicalVentilation1h,
+        IsVasopressors1h,
         ResourceIsRenalReplacementTherapy,
         ResourceIsNonInvasiveVentilation,
         ResourceIsHFNC,
@@ -309,10 +318,10 @@ labels_desc_ext_risk <- list(
     BUN ~ "BUN, median (IQR)",
     LowestPlateletsCount1h ~ "Platelets count, median (IQR)",
     HighestCreatinine1h ~ "Creatinine, median (IQR)", 
-    IsNonInvasiveVentilation ~ "Noninvasive Ventilation (24h), N (%)",
-    IsMechanicalVentilation ~ "Mechanical ventilation (24h), N (%)",
-    IsVasopressors ~ "Vasopressors (24h), N (%)",
-    IsRenalReplacementTherapy ~ "Renal replacement therapy (24h), N (%)",
+    IsNonInvasiveVentilation1h ~ "Noninvasive Ventilation at admission, N (%)",
+    IsMechanicalVentilation1h ~ "Mechanical ventilation at admission, N (%)",
+    IsVasopressors1h ~ "Vasopressors at admission, N (%)",
+    # IsRenalReplacementTherapy1h ~ "Renal replacement therapy at admission, N (%)",
     ResourceIsRenalReplacementTherapy ~ "Renal Replacement therapy, N (%)",
     rrt_risk ~ "Predicted RRT risk, median (IQR)",
     ResourceIsNonInvasiveVentilation ~ "Noninvasive ventilation support, N (%)",
@@ -364,10 +373,10 @@ tb_descriptive_risks <-
         Urea, 
         BUN,
         HighestCreatinine1h, 
-        IsRenalReplacementTherapy,
-        IsNonInvasiveVentilation,
-        IsMechanicalVentilation,
-        IsVasopressors,
+        # IsRenalReplacementTherapy1h,
+        IsNonInvasiveVentilation1h,
+        IsMechanicalVentilation1h,
+        IsVasopressors1h,
         ResourceIsRenalReplacementTherapy,
         rrt_risk,
         ResourceIsNonInvasiveVentilation,
